@@ -1,6 +1,6 @@
 # Claude Code Control Plane
 
-This is an architecture pattern for making AI-assisted development operationally reliable for in infrastructure nerds. I'm not a developer but I have spent 20+ years working on networks, data centres and infrastucture so I'm coming at AI-assisted coding from a different perspective from people that write code for a living. 
+This is an architecture pattern for making AI-assisted development operationally reliable for infrastructure nerds. I'm not a developer but I have spent 20+ years working on networks, data centres and infrastructure so I'm coming at AI-assisted coding from a different perspective from people that write code for a living. 
 
 If you're a sysadmin, network engineer or infrastructure specialist using AI coding tools and wondering why everyone else's advice feels like it's written for a different audience — that's because it is :D Hopefully this helps you unlock Claude Code as another tool like it has for me!
 
@@ -145,7 +145,7 @@ If the executor runs in a containerized environment (distrobox, devcontainers, e
 Each Claude Code session is a **stateless worker**:
 
 1. **Boot** — session starts, reads global CLAUDE.md and project CLAUDE.md
-2. **Context load** — operator points it at relevant project and load the context file
+2. **Context load** — operator points it at relevant project and loads the context file
 3. **Execute** — operator provides instructions, executor works within policy constraints, hooks validate at boundaries
 4. **State update** — context files and changelogs are updated to reflect completed work
 5. **Terminate** — session ends, all in-memory context is lost
