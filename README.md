@@ -170,7 +170,7 @@ Project CLAUDE.md files can be symlinked from a private context repo into public
 - Public repos don't expose operational instructions
 - Updates propagate by updating the source, not each project individually
 
-This is the same pattern as managing configuration through a central config management system rather than editing comfig on individual devices.
+This is the same pattern as managing configuration through a central config management system rather than editing config on individual devices.
 
 ### Network Layer — SSH Agent Forwarding
 
@@ -299,7 +299,7 @@ Context files track current state, not history. Change history belongs in git lo
 
 The template can be used as a starting point by giving it to Claude Code with instructions to fill it in based on the actual project. The executor can read the codebase and populate the sections — it's faster and more accurate than writing them manually. The operator then reviews and corrects. This is the same pattern that applies everywhere: Claude writes, the operator verifies. The human provides judgment and domain knowledge; the executor provides speed and thoroughness. 
 
-The inportant thing here is you don't need to understand the syntax to know if Claude has followed your instructions. 
+The important thing here is you don't need to understand the syntax to know if Claude has followed your instructions. 
 
 ### Symlinks
 
