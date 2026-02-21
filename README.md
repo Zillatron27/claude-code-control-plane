@@ -68,6 +68,44 @@ I view each of these as an infrastructure problem.
               └─────────────────┘
 ```
 
+## Directory Structure
+
+The control plane lives alongside the projects it manages:
+
+```
+~/Projects/
+├── context/                          # Private repo — the control plane itself
+│   ├── global-claude.md              # Global policy file
+│   ├── ProjectA_CLAUDE.md            # Project-level policy
+│   ├── ProjectA_PROJECT_CONTEXT.md   # Project state store
+│   ├── ProjectB_CLAUDE.md
+│   ├── ProjectB_PROJECT_CONTEXT.md
+│   └── ...
+│
+├── ProjectA/                         # Project repo (public or private)
+│   ├── CLAUDE.md                     # ← symlink to context/ProjectA_CLAUDE.md
+│   ├── .gitignore                    # includes CLAUDE.md
+│   ├── src/
+│   └── ...
+│
+├── ProjectB/
+│   ├── CLAUDE.md                     # ← symlink to context/ProjectB_CLAUDE.md
+│   ├── .gitignore                    # includes CLAUDE.md
+│   ├── src/
+│   └── ...
+```
+
+The `context/` directory is a single private Git repository. It contains every policy file, every context file, and any planning specs or design docs. This is the control plane's source of truth.
+
+Project repos receive their CLAUDE.md via symlink from the context directory. The symlink is gitignored so it never appears in the public repo. This means:
+
+- All policy and state files are version-controlled in one place
+- Public repos don't expose your operational instructions
+- Updating a policy file in `context/` immediately propagates to the project
+- Claude Code reads the symlinked CLAUDE.md at session start like any other file
+
+The naming convention (`ProjectName_CLAUDE.md`, `ProjectName_PROJECT_CONTEXT.md`) is flat and deliberate — no subdirectories, no nesting. Every file in the context repo is visible at a glance.
+
 ## Components
 
 ### Policy Engine — CLAUDE.md Files
@@ -140,6 +178,31 @@ This is the same pattern as managing configuration through a central config mana
 
 If the executor runs in a containerized environment (distrobox, devcontainers, etc.), SSH agent forwarding through the host gives it access to remote servers for deployment, diagnostics, and verification — without storing credentials in the container. The executor can reach a destination through a controlled path.
 
+### Web Bridge — ClaudeLink
+
+**Infrastructure role:** Shared state access across interfaces.
+
+Claude Code operates from the terminal with direct filesystem access. Claude's web interface is where longer planning, design thinking, and cross-project reasoning happen. Without a bridge between them, context must be manually relayed — copy-pasting state between interfaces, re-explaining project context in web sessions, or working blind.
+
+The bridge uses the context repository as shared state between both interfaces:
+
+```
+┌──────────────┐         ┌──────────────────┐         ┌──────────────┐
+│  Claude Web  │◄───────►│  GitHub          │◄───────►│  Claude Code │
+│  (planning)  │   MCP   │  (context repo)  │   git   │  (execution) │
+└──────────────┘         └──────────────────┘         └──────────────┘
+```
+
+**Claude Code** reads and writes context files via the filesystem and pushes changes to GitHub through normal git operations.
+
+**Claude Web** reads and writes the same files via a GitHub MCP connector — a remote MCP server that gives the web interface direct access to your GitHub repositories through the API.
+
+This means a web session can read the current state of any project, update planning documents, or review what Code did in the last session — all without the operator manually relaying information. It also works from any device: phone, tablet, a Steam Deck, anything with a browser.
+
+**Setup:** Claude's web interface supports [remote MCP server connections](https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp) (Pro/Max/Team/Enterprise plans). GitHub provides an [official remote MCP server](https://github.com/github/github-mcp-server) with [configurable toolsets and access controls](https://github.com/github/github-mcp-server/blob/main/docs/remote-server.md). Connecting the two gives web sessions authenticated read/write access to your repositories, including the private context repo that forms the control plane's state store.
+
+The web interface becomes a planning and coordination layer. Code remains the execution layer. The context repo is the shared state that connects them.
+
 ## How Sessions Work
 
 Each Claude Code session is a **stateless worker**:
@@ -182,6 +245,62 @@ The control plane wasn't designed upfront. It grew organically from operational 
 Each failure mode becomes infrastructure that helps prevent recurrence. The control plane is a living system that gets more reliable over time — not because the executor gets smarter, but because the constraints around it get tighter.
 
 This is how you operate any system reliably: not by hoping the components don't fail, but by designing the system to handle when it does.
+
+## Getting Started
+
+### Context Repository
+
+Create a private Git repository for your control plane. This holds all policy files, context files, and planning documents. A flat file structure with a consistent naming convention is easier to maintain than nested directories.
+
+### Policy Files
+
+A global policy file defines rules that apply across all projects. Project-level policy files extend or override for specific contexts.
+
+The content is whatever rules your projects need. Common categories include:
+
+- **Working style** — how you want the executor to communicate, plan, and seek approval
+- **Code standards** — formatting, naming, type safety, dependency management
+- **Debugging rules** — what to do when a fix attempt fails, when to stop and reassess
+- **Deployment procedures** — version bumping, changelog updates, build verification
+- **Security constraints** — authentication rules, trust boundaries, input validation
+- **Things not to do** — the mistakes that keep recurring, encoded so they stop
+
+None of these are prescriptive. A solo hobbyist's policy file will look nothing like one managing production infrastructure. The point is that rules exist as persistent files rather than things you remember to say each session.
+
+Policy files grow organically. Start with what you know, add rules when failures occur. A policy file that tries to anticipate everything upfront will be ignored. One that encodes real lessons from real problems gets followed.
+
+Claude is very good at writing instructions for Claude. You don't need to write policy files from scratch — describe what you want in plain language and have Claude draft the rules. A planning session in Claude's web interface can produce the initial policy files that Claude Code then operates under. Refine them as you discover what works and what doesn't.
+
+### Context Files
+
+Context files are project state stores. They give a stateless executor the knowledge it needs to be productive without the operator re-explaining the project every session.
+
+A template is provided at [`templates/PROJECT_CONTEXT.template.md`](templates/PROJECT_CONTEXT.template.md). The sections are:
+
+- **What the project is** — one paragraph, enough for an executor starting cold to understand what it's working on
+- **Environment** — how to run, build, test, and deploy. Commands, paths, prerequisites.
+- **Tech stack** — frameworks, languages, key dependencies
+- **Project structure** — file tree showing how the codebase is organized
+- **Current state** — version, phase, what's done, what's in progress
+- **Known issues and planned work** — what's broken, what's next
+
+Context files track current state, not history. Change history belongs in git logs and changelogs. When meaningful work is completed, the context file gets updated to reflect the new state — like updating documentation after a deployment.
+
+The template can be used as a starting point by giving it to Claude Code with instructions to fill it in based on the actual project. The executor can read the codebase and populate the sections — it's faster and more accurate than writing them manually. The operator then reviews and corrects. This is the same pattern that applies throughout: Claude writes, the operator verifies. The human provides judgment and domain knowledge; the executor provides speed and thoroughness.
+
+### Symlinks
+
+To distribute policy files to project repos without exposing them:
+
+```bash
+# From your project directory
+ln -s ../context/ProjectName_CLAUDE.md CLAUDE.md
+
+# Add to .gitignore
+echo "CLAUDE.md" >> .gitignore
+```
+
+Claude Code follows symlinks transparently. The file appears in the project root as `CLAUDE.md` and gets read at session start like any other file.
 
 ## Background
 
