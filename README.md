@@ -201,6 +201,8 @@ This means a web session can read the current state of any project, update plann
 
 **Setup:** Claude's web interface supports [remote MCP server connections](https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp) (Pro/Max/Team/Enterprise plans). GitHub provides an [official remote MCP server](https://github.com/github/github-mcp-server) with [configurable toolsets and access controls](https://github.com/github/github-mcp-server/blob/main/docs/remote-server.md). Connecting the two gives web sessions authenticated read/write access to your repositories, including the private context repo that forms the control plane's state store.
 
+**Note:** This bridge depends on external services — GitHub's MCP server and Anthropic's connector feature — which you don't control. If either changes, the bridge may need updating. The underlying problem it solves (shared state between planning and execution interfaces) doesn't go away though. If the automated bridge breaks, or if you only have a handful of repos, copying context files manually between interfaces works fine. The MCP connector just removes that friction at scale.
+
 The web interface becomes a planning and coordination layer. Code remains the execution layer. The context repo is the shared state that connects them.
 
 ## How Sessions Work
@@ -267,9 +269,18 @@ The content is whatever rules your projects need. Common categories include:
 
 None of these are prescriptive. A solo hobbyist's policy file will look nothing like one managing production infrastructure. The point is that rules exist as persistent files rather than things you remember to say each session.
 
-Policy files grow organically. Start with what you know, add rules when failures occur. A policy file that tries to anticipate everything upfront will be ignored. One that encodes real lessons from real problems gets followed.
+To give a concrete sense of what policy rules look like in practice, here are some examples from my own files. These aren't recommendations — they're rules I added because I hit the specific problem they solve:
 
-Claude is very good at writing instructions for Claude. You don't need to write policy files from scratch — describe what you want in plain language and have Claude draft the rules. A planning session in Claude's web interface can produce the initial policy files that Claude Code then operates under. Refine them as you discover what works and what doesn't.
+- **"Two-strike rule: if a fix attempt fails, do not try a similar variation. Stop, explain why the approach failed, list at least 3 fundamentally different approaches, and propose the best one."** — Added after watching the executor burn through 15 minutes trying minor variations of the same broken approach. Without this rule it will grind on a bad idea indefinitely.
+- **"Wait for explicit confirmation before making changes. Explaining the fix and getting agreement on the approach is NOT permission to edit."** — Added after the executor explained what it wanted to do, I said "that makes sense," and it immediately edited six files. Understanding a plan is not the same as approving it.
+- **"No dead code, commented-out blocks, or TODO placeholders unless I ask. Clean as you go."** — Added after every session left a trail of `// TODO: implement later` comments and commented-out old code that accumulated across the codebase.
+- **"Every path that issues a session cookie MUST require the user to provide a credential — not just confirm one exists server-side."** — Added after an auth vulnerability where the executor built a login flow that validated a stored API key (proving the key was valid) without requiring the user to provide it (proving they owned it).
+
+Your rules will be different because your failure modes will be different. The starting point is to use Claude Code for a while, notice what goes wrong, and encode the fix.
+
+Claude Code's `/insights` command can also help bootstrap this — it analyzes your usage patterns and suggests rules based on what it observes. Run it, review the suggestions, keep what's useful. And more broadly: Claude is very good at writing instructions for Claude. You don't need to write policy files from scratch — describe what you want in plain language and have Claude draft the rules. A planning session in Claude's web interface can produce the initial policy files that Claude Code then operates under. Refine them as you discover what works and what doesn't.
+
+Policy files grow organically. Start with what you know, add rules when failures occur. A policy file that tries to anticipate everything upfront will be ignored. One that encodes real lessons from real problems gets followed.
 
 ### Context Files
 
@@ -305,6 +316,8 @@ Claude Code follows symlinks transparently. The file appears in the project root
 ## Background
 
 This pattern emerged over ~225 Claude Code sessions across six concurrent projects (browser extensions, web dashboards, game development, server infrastructure) by an infrastructure specialist with 16 years in the financial technology sector — not a software developer. The framing came from realizing the workflow that had been built organically mapped directly to infrastructure patterns: policy engines, state stores, admission controllers, and runbooks. It was just invisible because it's how an infrastructure person naturally thinks about making systems reliable.
+
+This is what works for me. It might not work for you — different projects, different working styles, different tolerance for process overhead. But if you're an infrastructure person trying to make Claude Code reliable and the developer-oriented advice isn't landing, this is somewhere to start. Take what's useful, ignore what isn't, and build the system that fits how you actually work.
 
 ## License
 
