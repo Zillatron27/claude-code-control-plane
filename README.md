@@ -248,6 +248,66 @@ Each failure mode becomes infrastructure that helps prevent recurrence. The cont
 
 This is how you operate any system reliably: not by hoping the components don't fail, but by designing the system to handle when it does.
 
+## Case Study: DryDock
+
+The architecture section above is abstract by design — it describes the pattern, not a specific instance. This section shows what the pattern looks like in practice by walking through a real project built using the control plane: [DryDock](https://drydock.cc), a ship blueprint cost calculator for the game Prosperous Universe.
+
+DryDock went from empty repo to v1.0.0 in three days. It's a React + TypeScript app deployed on Cloudflare Pages that lets players design ship blueprints and price the full bill of materials across six commodity exchanges. A major community shipyard operator integrated DryDock's permalink system into his workflow within hours of launch.
+
+I'm not a developer. I'm an infrastructure specialist. The control plane is the reason this worked.
+
+### What the control plane provided
+
+**Context file** — `DryDock_PROJECT_CONTEXT.md` tracked the project state across every session. When a new Claude Code session started, it didn't need me to re-explain what DryDock was, what the tech stack was, where the FIO API endpoints lived, what the formula engine did, or what had already been built. The context file carried all of that. Session 1 scaffolded the repo. Session 15 implemented permalink sharing. Both started cold and both were productive immediately because the state store gave the executor everything it needed.
+
+The context file also encoded domain knowledge that no LLM would have on its own. Prosperous Universe ship formulas were reverse-engineered from in-game testing across 13 ships — the SSC divisor is 21, not 20 (the common community assumption was wrong). The hull plate divisor is 2.07, using a volume^(2/3) surface area approximation. The emitter algorithm is greedy cover, largest first. None of this exists in any training data. It existed in a spec file I wrote, referenced by the context file, and every session had access to it.
+
+**Policy rules** — `global-claude.md` constrained behavior across every session. Three rules mattered most during this build:
+
+The *two-strike debugging rule* fired multiple times. During the exchange status logic implementation, the executor's first attempt at matching APEX_'s availability calculation was wrong — it was treating "has a price" as "fully satisfiable." The fix attempt also missed the mark, conflating partial supply with unavailable supply. On the second failure, the rule kicked in: stop, explain why both approaches failed, list three fundamentally different strategies, and propose the best one. The executor came back with the correct three-tier classification (full/partial/unavailable based on supply vs. quantity needed) and got it right. Without this rule, it would have kept grinding variations of the same broken logic.
+
+The *explicit confirmation rule* prevented premature edits. During the import/export feature, the executor explained a validation approach for blueprint JSON schemas, I said "that makes sense," and it waited. Before this rule existed, "that makes sense" would have been interpreted as "go ahead and edit six files." The rule forces the executor to distinguish between the operator understanding a plan and the operator approving execution.
+
+The *no dead code rule* kept the codebase clean across 20+ sessions. Without it, every session would have left `// TODO: implement later` comments and commented-out blocks. Over a multi-session build, that accumulates into a codebase the operator can't navigate. The rule means each session cleans up after itself.
+
+**Project-level CLAUDE.md** — `DryDock_CLAUDE.md` layered project-specific constraints on top of global policy. Critical ones included: formula accuracy is non-negotiable (the spec is the source of truth, if code disagrees with the spec the code is wrong), use the APEX_ design system (no Tailwind, no CSS frameworks), cache FIO API responses aggressively, and handle failures gracefully (show stale data with timestamps, don't crash). These rules meant I didn't re-state project conventions every session. They were infrastructure.
+
+**Hooks** — TypeScript strict mode with a typecheck hook (`npx tsc --noEmit`) running after every file edit caught type errors before they compounded. In a project with ~130 lines of type definitions and strict mode enforced, a single wrong type propagates fast. The hook caught these at the boundary — the executor got the error fed back and fixed it before moving on. Without the hook, type errors would accumulate silently across multiple edits and surface as a wall of failures at build time.
+
+**Spec-driven development** — Each major feature had a spec written collaboratively with Claude's web interface before Code touched it. The permalink spec defined the encoding scheme (12 positional digits, version-prefixed, trailing zero trimming), the import flow, the URL cleaning behavior, and the collision handling. The blueprint import/export spec defined the JSON schema, validation rules, and error messages. I described what I wanted in domain terms; the web session translated that into a technical spec; I verified the spec captured my intent.
+
+For complex changes, Claude Code worked in Plan mode first — producing an implementation plan without editing any files. I'd then take that plan back to the web session that wrote the spec and have it validate the plan against the spec before approving execution. This is another admission controller, just human-in-the-loop via the web interface rather than automated via hooks. It caught cases where Code's plan would have drifted from the spec — not because the executor was ignoring it, but because it interpreted an ambiguous section differently than I intended. The global policy rule "do not improvise solutions when a spec already defines the approach" backed this up at the execution layer, but the plan validation step caught drift before any code was written.
+
+**Deploy skill** — The release process (bump version in `src/version.ts`, update CHANGELOG.md, build, commit, push to trigger Cloudflare Pages deploy) was encoded as a skill. Version 0.3.1 was when this got added, after I'd already done a few manual deploys and missed steps. Every release from 0.4.0 onward used the skill. The changelog in the DryDock repo is the output — consistent format, no skipped versions, no forgotten bumps.
+
+### What it looked like in practice
+
+DryDock shipped 12 versions in 3 days. The changelog tells the story: initial release on Feb 22, then a rapid feature cadence — comparison tables, cherry-pick sourcing, import/export (35 tests), preset blueprints, ship stats dashboard, and permalink sharing (43 more tests) — through to v1.0.0 on Feb 24.
+
+Each session followed the same pattern described in "How Sessions Work" above. Boot, load context, receive instructions, execute within policy, update state, terminate. The next session picked up where the last one left off because the context file had been updated, not because the executor remembered anything.
+
+The two-strike rule fired. The typecheck hook caught errors. The deploy skill enforced process. The context file prevented re-explanation. The spec files prevented improvisation. Plan validation against specs caught drift before code was written. None of these required me to remember to do them — they were infrastructure.
+
+The test at the end is simple: a community member with a major shipyard operation saw the launch post, opened the tool, and integrated the permalink system into his workflow the same day. The tool worked because the formula engine was accurate (spec-driven), the UX was consistent (design system policy), the sharing system was well-designed (spec-driven), and the deployment was clean (skill-driven). The control plane didn't write the code, but it made the code reliable enough to ship publicly with confidence.
+
+### What this demonstrates
+
+DryDock is not a complex project. It's a client-side calculator with ~2,500 lines of TypeScript. The point isn't the scale — it's that a non-developer shipped a working, tested, publicly-used tool by treating AI-assisted development as an operations problem rather than a coding problem.
+
+The control plane components map directly to what happened:
+
+| Component | Role in DryDock |
+|---|---|
+| Context file | Carried project state, domain formulas, and architecture across 20+ sessions |
+| Global policy | Two-strike rule, explicit confirmation, no dead code — prevented recurring failure modes |
+| Project policy | Formula accuracy, design system, API caching — project-specific constraints |
+| Hooks | TypeScript strict mode typecheck after every edit — caught errors at the boundary |
+| Specs | Co-authored in web sessions, plans validated against spec before execution — prevented drift on complex features |
+| Deploy skill | Version bump + changelog + build + push — no missed steps after v0.3.1 |
+| Symlinks | CLAUDE.md symlinked from private context repo, gitignored in public DryDock repo |
+
+The repos are public. [DryDock](https://github.com/Zillatron27/drydock) has the code, the changelog, the spec files. The context files referenced above live in a private repo, but excerpts are shown here to illustrate the pattern. You can see the output — whether the process that produced it seems worth adopting is up to you.
+
 ## Getting Started
 
 ### Context Repository
